@@ -1,8 +1,28 @@
 import geopandas as gpd
+import pandas as pd
 from shapely.geometry import Point
 import pystac_client
 import odc.stac
 import numpy as np
+
+import os
+import logging
+
+log_file = 'data_download.log'
+log_dir = 'logs'
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+
+log_path = os.path.join(log_dir, log_file)
+
+logging.basicConfig(
+    filename=log_path,
+    level=logging.INFO,
+    filemode='a')
+
+data_dir = 'data'
+if not os.path.exists(data_dir):
+    os.makedirs(data_dir)
 
 
 class DataDownload():
@@ -62,7 +82,7 @@ class DataDownload():
 
 
     def extract_time_series(self,
-                            aoi_bbox: tuple,
+                            aoi_bbox: list,
                             start_date: str,
                             end_date: str):
         """"
@@ -113,7 +133,9 @@ class DataDownload():
         ds = ds.where(ds != 0)
 
         red = ds['red']
+        blue = ds['blue']
         nir = ds['nir']
+        swir = ds['swir16']
         scl = ds['scl']
 
         mask = scl.isin([
@@ -125,7 +147,9 @@ class DataDownload():
                     ])
 
         red_masked = red.where(~mask)
+        blue_masked = blue.where(~mask)
         nir_masked = nir.where(~mask)
+        swir_masked = swir.where(~mask)
 
         ndvi = (nir_masked - red_masked) / (nir_masked + red_masked)
 
@@ -136,4 +160,55 @@ class DataDownload():
         ndvi_mean_ts = ndvi_mean_ts.compute(scheduler="threads",
                                             num_workers=4)
        
-        return ndvi_mean_ts
+        # Bare Soil Index (BI)
+        bi = ((swir_masked + red_masked) - (nir_masked + blue_masked)) / \
+              ((swir_masked + red_masked) + (nir_masked + blue_masked))
+        
+        bi_mean_ts = bi.mean(dim=['x', 'y']).interp(method='nearest')
+        bi_mean_ts = bi_mean_ts.compute(scheduler="threads",
+                                        num_workers=4)
+
+        #save time series to file
+        indices_df = pd.DataFrame({
+            'time': ndvi_mean_ts.time.values,
+            'ndvi': ndvi_mean_ts.data,
+            'bi': bi_mean_ts.data
+            })
+        indices_df.to_parquet(f'{data_dir}/indices_time_series.parquet', 
+                           engine="pyarrow", index=False)
+        
+        # TODO: update logging info to include more details on indices
+        # consider creating a table instead of plain text log
+        logging.info(f"DATE RANGE: ({indices_df['time'].min()}, {indices_df['time'].max()})")
+        logging.info(f"NDVI: {indices_df.shape[0]} records")
+        logging.info(f"BI: {indices_df.shape[0]} records")
+        logging.info(f"MISSING VALUES: {indices_df['ndvi'].isna().sum()}")
+        
+        indices_df.to_parquet(f'{data_dir}/indices_time_series.parquet', 
+                           engine="pyarrow", index=False)
+    
+        return indices_df
+
+
+        def update_time_series(self,
+                               last_date: str,
+                               ): 
+            """check the last date of existing time series
+            and update it with new data from the STAC catalog"""
+
+            # check the logged last date
+            # if it is older than today:
+            # check if there is new data to download
+            # if yes, download and append to existing time series
+
+            return NotImplemented
+        
+        def download_spatial_data(self,
+                                  aoi_bbox: tuple,
+                                  date: str):
+            """
+            download spatial data for a given date range and AOI.
+            should be grouped by month (or season).
+            """
+
+            return NotImplemented
