@@ -13,3 +13,12 @@ openeo
 matplotlib
 plotly
 seaborn
+streamlit
+plotly
+folium
+streamlit-folium
+shapely
+xgboost
+optuna
+mlflow
+pandas
